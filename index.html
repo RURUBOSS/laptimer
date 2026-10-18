@@ -6,18 +6,26 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="랩타이머">
-<meta name="theme-color" content="#0c0e0d">
-<title>인라인 랩타이머</title>
+<meta name="apple-mobile-web-app-title" content="OSR 랩타이머">
+<meta name="theme-color" content="#0c1733">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:ital,wdth,wght@1,125,800;1,125,900&display=swap">
+<title>OSR 랩타이머</title>
 <style>
 /* 레이아웃: 왼쪽(세로모드는 위) 카메라 화면 + 오른쪽(아래) 기록판. 계측기 느낌의 어두운 단일 테마 */
 :root {
-  --bg: #0c0e0d;
-  --panel: #151917;
-  --line: #2a302d;
-  --fg: #eef2ef;
-  --dim: #8d9792;
-  --gate: #ffd21f;      /* 출발선·타이머 노랑 */
+  --bg: #070f24;
+  --panel: #0c1733;
+  --line: #1e2c55;
+  --fg: #f2f6ff;
+  --dim: #8c9cc2;
+  --navy: #173372;
+  --accent: #4aa3ea;    /* 오설록스포츠TV 하늘색 */
+  --sky: #5fb3f2;
+  --gate: #ffd21f;      /* 카메라 가이드선 노랑 */
+  --display: "Archivo", "Arial Black", var(--sans);
   --detect: #ff4b3e;    /* 감지 순간 */
   --best: #3ddc84;      /* 최고 랩 */
   --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
@@ -39,8 +47,8 @@ button, input, select { font: inherit; color: inherit; }
 #overlay { position: absolute; inset: 0; width: 100%; height: 100%; }
 #hud { position: absolute; left: 12px; top: 12px; display: flex; gap: 8px; align-items: center; pointer-events: none; }
 .pill { padding: 6px 12px; border-radius: 999px; background: rgba(0,0,0,.6); font-size: 15px; font-weight: 600; letter-spacing: .02em; }
-.pill.setup { color: var(--gate); }
-.pill.armed { background: var(--gate); color: #111; animation: blink 1s steps(2) infinite; }
+.pill.setup { color: var(--accent); }
+.pill.armed { background: var(--accent); color: #06122e; animation: blink 1s steps(2) infinite; }
 .pill.running { background: var(--best); color: #062; }
 .pill.stopped { color: var(--dim); }
 .pill.fps { font-size: 13px; font-weight: 500; color: var(--dim); font-variant-numeric: tabular-nums; }
@@ -51,43 +59,50 @@ button, input, select { font: inherit; color: inherit; }
 #hint { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); max-width: calc(100% - 24px); padding: 8px 14px; border-radius: 10px; background: rgba(0,0,0,.65); font-size: 14px; color: var(--fg); text-align: center; pointer-events: none; }
 #camError { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; color: var(--fg); background: #000; }
 #camError div { max-width: 460px; line-height: 1.6; }
-#camError b { color: var(--gate); display: block; font-size: 20px; margin-bottom: 8px; }
+#camError b { color: var(--accent); display: block; font-size: 20px; margin-bottom: 8px; }
 
 #flash { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; opacity: 0; transition: opacity .35s; }
 #flash.on { opacity: 1; transition: none; }
-#flash > div { background: rgba(0,0,0,.72); border: 3px solid var(--gate); border-radius: 18px; padding: 14px 28px; text-align: center; }
-#flashLabel { font-size: 22px; font-weight: 700; color: var(--gate); letter-spacing: .08em; }
+#flash > div { background: rgba(0,0,0,.72); border: 3px solid var(--accent); border-radius: 18px; padding: 14px 28px; text-align: center; }
+#flashLabel { font-family: var(--display); font-style: italic; font-stretch: 125%; font-size: 22px; font-weight: 800; color: var(--accent); letter-spacing: .08em; }
 #flashTime { font-family: var(--mono); font-size: clamp(48px, 9vw, 96px); font-weight: 700; font-variant-numeric: tabular-nums; }
 #flash.best > div { border-color: var(--best); }
 #flash.best #flashLabel { color: var(--best); }
 
 /* 기록판 */
 #panel { background: var(--panel); border-left: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; min-width: 0; }
-@media (orientation: portrait) { #panel { border-left: 0; border-top: 1px solid var(--line); display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); grid-template-rows: auto 1fr; } #nameBox { grid-column: 1 / -1; } #clocks { grid-column: 1; } #controls { grid-column: 2; align-content: center; } #laps { grid-column: 1 / -1; } }
+@media (orientation: portrait) { #panel { border-left: 0; border-top: 1px solid var(--line); display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); grid-template-rows: auto auto auto 1fr; } #brand, #nameBox { grid-column: 1 / -1; } #clocks { grid-column: 1; } #controls { grid-column: 2; align-content: center; } #laps { grid-column: 1 / -1; } }
 #clocks { padding: 16px 18px 10px; }
+#brand { position: relative; overflow: hidden; padding: 14px 18px 20px; background: linear-gradient(180deg, var(--navy), #0a1838); border-bottom: 1px solid var(--line); }
+#brand .wm { font-family: var(--display); font-style: italic; font-weight: 900; font-stretch: 125%; font-size: clamp(22px, 2.6vw, 30px); line-height: 1; color: #fff; letter-spacing: .01em; }
+#brand .sub { display: flex; align-items: center; gap: 8px; margin-top: 6px; white-space: nowrap; }
+#brand .sub b { font-family: var(--display); font-style: italic; font-weight: 800; font-stretch: 125%; font-size: 12px; letter-spacing: .3em; color: var(--sky); }
+#brand .sub i { width: 1px; height: 12px; background: rgba(255,255,255,.45); }
+#brand .sub span { font-size: 12px; color: #dbe7ff; letter-spacing: .04em; }
+#brand svg { position: absolute; left: 0; right: 0; bottom: 0; width: 100%; height: 22px; }
 #nameBox { padding: 14px 18px 0; display: grid; gap: 8px; }
-#skater { width: 100%; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); background: #0c0e0d; font-size: 22px; font-weight: 700; -webkit-user-select: text; user-select: text; }
+#skater { width: 100%; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); font-size: 22px; font-weight: 700; -webkit-user-select: text; user-select: text; }
 #skater::placeholder { color: var(--dim); font-weight: 500; }
-#skater:focus { outline: 2px solid var(--gate); outline-offset: 1px; }
+#skater:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 #skater:disabled { opacity: .7; }
 #recentNames { display: flex; flex-wrap: wrap; gap: 6px; }
-#recentNames button { border: 1px solid var(--line); background: #1f2421; border-radius: 999px; padding: 6px 12px; font-size: 15px; cursor: pointer; }
-#recentNames button.on { background: var(--gate); color: #111; border-color: var(--gate); }
+#recentNames button { border: 1px solid var(--line); background: #13214a; border-radius: 999px; padding: 6px 12px; font-size: 15px; cursor: pointer; }
+#recentNames button.on { background: var(--accent); color: #06122e; border-color: var(--accent); }
 .pill.name { background: rgba(0,0,0,.7); color: var(--fg); font-size: 18px; font-weight: 700; }
 .lbl { font-size: 13px; color: var(--dim); letter-spacing: .06em; }
-#total { font-family: var(--mono); font-variant-numeric: tabular-nums; font-weight: 700; font-size: clamp(44px, 6.4vw, 76px); line-height: 1.05; color: var(--gate); }
+#total { font-family: var(--mono); font-variant-numeric: tabular-nums; font-weight: 700; font-size: clamp(44px, 6.4vw, 76px); line-height: 1.05; color: var(--fg); }
 .row2 { display: flex; gap: 18px; margin-top: 8px; }
 .row2 > div { min-width: 0; }
 #cur, #count { font-family: var(--mono); font-variant-numeric: tabular-nums; font-weight: 600; font-size: clamp(24px, 3vw, 34px); }
 
 #controls { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 6px 18px 12px; }
-.btn { border: 1px solid var(--line); background: #1f2421; border-radius: 12px; padding: 14px 10px; font-size: 17px; font-weight: 600; cursor: pointer; }
-.btn:active { transform: translateY(1px); background: #262c29; }
-.btn:focus-visible { outline: 2px solid var(--gate); outline-offset: 2px; }
+.btn { border: 1px solid var(--line); background: #13214a; border-radius: 12px; padding: 14px 10px; font-size: 17px; font-weight: 600; cursor: pointer; }
+.btn:active { transform: translateY(1px); background: #1a2b5c; }
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .btn:disabled { opacity: .4; }
-#mainBtn { grid-column: 1 / -1; background: var(--gate); color: #111; border-color: var(--gate); font-size: 21px; padding: 18px; }
+#mainBtn { grid-column: 1 / -1; background: var(--accent); color: #06122e; border-color: var(--accent); font-size: 21px; padding: 18px; }
 #mainBtn.stop { background: var(--detect); border-color: var(--detect); color: #fff; }
-#mainBtn.cancel { background: #3a3f3c; border-color: #3a3f3c; color: var(--fg); }
+#mainBtn.cancel { background: #2a3a66; border-color: #2a3a66; color: var(--fg); }
 
 #laps { flex: 1; min-height: 0; overflow-y: auto; border-top: 1px solid var(--line); -webkit-overflow-scrolling: touch; }
 #lapTable { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
@@ -107,14 +122,14 @@ button, input, select { font: inherit; color: inherit; }
 .sheet h2 { margin: 0 0 14px; font-size: 20px; }
 .field { margin: 0 0 16px; }
 .field label { display: flex; justify-content: space-between; font-size: 15px; margin-bottom: 6px; }
-.field label span { font-family: var(--mono); color: var(--gate); }
-.field input[type=range] { width: 100%; accent-color: var(--gate); }
+.field label span { font-family: var(--mono); color: var(--accent); }
+.field input[type=range] { width: 100%; accent-color: var(--accent); }
 .field p { margin: 4px 0 0; font-size: 13px; color: var(--dim); line-height: 1.5; }
 .sheetBtns { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .sheetBtns .btn { flex: 1 1 140px; }
-#resultText { width: 100%; height: 260px; background: #0c0e0d; border: 1px solid var(--line); border-radius: 10px; color: var(--fg); font-family: var(--mono); font-size: 14px; padding: 10px; -webkit-user-select: text; user-select: text; }
+#resultText { width: 100%; height: 260px; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; color: var(--fg); font-family: var(--mono); font-size: 14px; padding: 10px; -webkit-user-select: text; user-select: text; }
 .toggle { display: flex; align-items: center; gap: 10px; font-size: 15px; }
-.toggle input { width: 22px; height: 22px; accent-color: var(--gate); }
+.toggle input { width: 22px; height: 22px; accent-color: var(--accent); }
 
 #toast { position: fixed; left: 50%; top: calc(env(safe-area-inset-top) + 14px); transform: translateX(-50%); background: #000c; border: 1px solid var(--line); padding: 10px 16px; border-radius: 10px; font-size: 15px; z-index: 20; }
 @media (prefers-reduced-motion: reduce) { .pill.armed { animation: none; } }
@@ -137,6 +152,15 @@ button, input, select { font: inherit; color: inherit; }
   </section>
 
   <aside id="panel">
+    <header id="brand">
+      <div class="wm">OHSEOLROK</div>
+      <div class="sub"><b>LAP TIMER</b><i></i><span>인라인 랩타임</span></div>
+      <svg viewBox="0 0 400 22" preserveAspectRatio="none" aria-hidden="true">
+        <path d="M0 4 C120 22 280 22 400 2" fill="none" stroke="#cfe9ff" stroke-width="1.2"/>
+        <path d="M0 9 C120 27 280 27 400 7" fill="none" stroke="#4aa3ea" stroke-width="2.6"/>
+        <path d="M0 15 C120 33 280 33 400 13" fill="none" stroke="#2160bd" stroke-width="1.2"/>
+      </svg>
+    </header>
     <div id="nameBox">
       <input id="skater" type="text" placeholder="선수 이름 입력" maxlength="20" autocomplete="off" enterkeyhint="done" aria-label="선수 이름">
       <div id="recentNames"></div>
@@ -199,7 +223,7 @@ button, input, select { font: inherit; color: inherit; }
     </div>
     <div class="sheetBtns">
       <button class="btn" id="resetLine" type="button">가이드선 처음 위치로</button>
-      <button class="btn" id="closeSettings" type="button" style="background:var(--gate);color:#111;border-color:var(--gate)">닫기</button>
+      <button class="btn" id="closeSettings" type="button" style="background:var(--accent);color:#06122e;border-color:var(--accent)">닫기</button>
     </div>
   </div>
 </div>
@@ -212,7 +236,7 @@ button, input, select { font: inherit; color: inherit; }
       <button class="btn" id="copyBtn" type="button">복사</button>
       <button class="btn" id="csvBtn" type="button">CSV 저장</button>
       <button class="btn" id="clearBtn" type="button">기록 지우기</button>
-      <button class="btn" id="closeResult" type="button" style="background:var(--gate);color:#111;border-color:var(--gate)">닫기</button>
+      <button class="btn" id="closeResult" type="button" style="background:var(--accent);color:#06122e;border-color:var(--accent)">닫기</button>
     </div>
   </div>
 </div>
