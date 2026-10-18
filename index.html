@@ -43,6 +43,7 @@ button, input, select { font: inherit; color: inherit; }
 .pill.armed { background: var(--gate); color: #111; animation: blink 1s steps(2) infinite; }
 .pill.running { background: var(--best); color: #062; }
 .pill.stopped { color: var(--dim); }
+.pill.fps { font-size: 13px; font-weight: 500; color: var(--dim); font-variant-numeric: tabular-nums; }
 @keyframes blink { 50% { opacity: .55; } }
 #meter { width: 120px; height: 12px; border-radius: 6px; background: rgba(0,0,0,.6); border: 1px solid rgba(255,255,255,.35); overflow: hidden; position: relative; }
 #meterFill { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: var(--best); }
@@ -118,6 +119,7 @@ button, input, select { font: inherit; color: inherit; }
     <div id="hud">
       <span id="status" class="pill setup">출발선 맞추기</span>
       <div id="meter" title="출발선 감지량"><div id="meterFill"></div><div id="meterMark"></div></div>
+      <span id="fps" class="pill fps" hidden></span>
     </div>
     <div id="hint">노란 선의 양 끝 동그라미를 끌어 바닥의 출발선에 맞추세요</div>
     <div id="flash"><div><div id="flashLabel">LAP 1</div><div id="flashTime">0:00.00</div></div></div>
@@ -211,7 +213,7 @@ const work = document.createElement('canvas');
 const wctx = work.getContext('2d', { willReadFrequently: true });
 
 /* ---------- 설정 ---------- */
-const DEFAULTS = { p1: { x: 0.5, y: 0.12 }, p2: { x: 0.5, y: 0.88 }, sens: 12, pix: 28, lockout: 15, band: 2, beep: true, facing: 'environment' };
+const DEFAULTS = { p1: { x: 0.5, y: 0.12 }, p2: { x: 0.5, y: 0.88 }, sens: 12, pix: 28, lockout: 12, band: 2, beep: true, facing: 'environment' };
 let S = Object.assign({}, DEFAULTS);
 try { const saved = JSON.parse(localStorage.getItem('laptimer.settings') || 'null'); if (saved) S = Object.assign(S, saved); } catch (e) {}
 const saveSettings = () => { try { localStorage.setItem('laptimer.settings', JSON.stringify(S)); } catch (e) {} };
@@ -226,6 +228,7 @@ let startedAt = null;          // 세션 시작 실제 시각
 let stream = null;
 let cur = null, bg = null, frac = 0, lineClear = true, clearFrames = 0, lastTrig = -1e9;
 let audioCtx = null, wakeLock = null;
+let lastFrameT = null, fpsEMA = 0;
 
 const nowT = () => source === 'file' ? video.currentTime : performance.now() / 1000;
 
@@ -317,6 +320,8 @@ const AW = 320;
 function analyze(t, src = video) {
   const vw = src.videoWidth || src.width, vh = src.videoHeight || src.height;
   if (!vw || !vh) return;
+  if (src === video && lastFrameT !== null) { const dt = t - lastFrameT; if (dt > 0.004 && dt < 0.5) fpsEMA = fpsEMA ? fpsEMA * 0.95 + 0.05 / dt : 1 / dt; }
+  if (src === video) lastFrameT = t;
   const W = AW, H = Math.max(1, Math.round(AW * vh / vw));
   if (work.width !== W || work.height !== H) { work.width = W; work.height = H; bg = null; }
   wctx.drawImage(src, 0, 0, W, H);
@@ -547,6 +552,8 @@ function uiLoop() {
   $('#meterFill').style.width = Math.min(100, frac / Math.max(thr * 2, 0.01) * 100) + '%';
   $('#meterFill').style.background = frac >= thr ? 'var(--detect)' : 'var(--best)';
   $('#meterMark').style.left = '50%';
+  const fe = $('#fps'); fe.hidden = !fpsEMA || source !== 'camera';
+  if (fpsEMA) fe.textContent = Math.round(fpsEMA) + 'fps · 1프레임 ' + (1 / fpsEMA).toFixed(3) + '초';
   drawOverlay();
   requestAnimationFrame(uiLoop);
 }
