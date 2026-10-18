@@ -1,0 +1,688 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="랩타이머">
+<meta name="theme-color" content="#0c0e0d">
+<title>인라인 랩타이머</title>
+<style>
+/* 레이아웃: 왼쪽(세로모드는 위) 카메라 화면 + 오른쪽(아래) 기록판. 계측기 느낌의 어두운 단일 테마 */
+:root {
+  --bg: #0c0e0d;
+  --panel: #151917;
+  --line: #2a302d;
+  --fg: #eef2ef;
+  --dim: #8d9792;
+  --gate: #ffd21f;      /* 출발선·타이머 노랑 */
+  --detect: #ff4b3e;    /* 감지 순간 */
+  --best: #3ddc84;      /* 최고 랩 */
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font-family: var(--sans); overflow: hidden; -webkit-user-select: none; user-select: none; }
+button, input, select { font: inherit; color: inherit; }
+[hidden] { display: none !important; }
+
+#app { height: 100%; display: grid; grid-template-columns: 1fr minmax(320px, 34%);
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+@media (orientation: portrait) { #app { grid-template-columns: 1fr; grid-template-rows: 1fr minmax(0, 46%); } }
+
+/* 카메라 */
+#stage { position: relative; background: #000; overflow: hidden; touch-action: none; min-height: 0; }
+#video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+#overlay { position: absolute; inset: 0; width: 100%; height: 100%; }
+#hud { position: absolute; left: 12px; top: 12px; display: flex; gap: 8px; align-items: center; pointer-events: none; }
+.pill { padding: 6px 12px; border-radius: 999px; background: rgba(0,0,0,.6); font-size: 15px; font-weight: 600; letter-spacing: .02em; }
+.pill.setup { color: var(--gate); }
+.pill.armed { background: var(--gate); color: #111; animation: blink 1s steps(2) infinite; }
+.pill.running { background: var(--best); color: #062; }
+.pill.stopped { color: var(--dim); }
+@keyframes blink { 50% { opacity: .55; } }
+#meter { width: 120px; height: 12px; border-radius: 6px; background: rgba(0,0,0,.6); border: 1px solid rgba(255,255,255,.35); overflow: hidden; position: relative; }
+#meterFill { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: var(--best); }
+#meterMark { position: absolute; top: -2px; bottom: -2px; width: 2px; background: #fff; }
+#hint { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); max-width: calc(100% - 24px); padding: 8px 14px; border-radius: 10px; background: rgba(0,0,0,.65); font-size: 14px; color: var(--fg); text-align: center; pointer-events: none; }
+#camError { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; color: var(--fg); background: #000; }
+#camError div { max-width: 460px; line-height: 1.6; }
+#camError b { color: var(--gate); display: block; font-size: 20px; margin-bottom: 8px; }
+
+#flash { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; opacity: 0; transition: opacity .35s; }
+#flash.on { opacity: 1; transition: none; }
+#flash > div { background: rgba(0,0,0,.72); border: 3px solid var(--gate); border-radius: 18px; padding: 14px 28px; text-align: center; }
+#flashLabel { font-size: 22px; font-weight: 700; color: var(--gate); letter-spacing: .08em; }
+#flashTime { font-family: var(--mono); font-size: clamp(48px, 9vw, 96px); font-weight: 700; font-variant-numeric: tabular-nums; }
+#flash.best > div { border-color: var(--best); }
+#flash.best #flashLabel { color: var(--best); }
+
+/* 기록판 */
+#panel { background: var(--panel); border-left: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+@media (orientation: portrait) { #panel { border-left: 0; border-top: 1px solid var(--line); display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); grid-template-rows: auto 1fr; } #clocks { grid-column: 1; } #controls { grid-column: 2; align-content: center; } #laps { grid-column: 1 / -1; } }
+#clocks { padding: 16px 18px 10px; }
+.lbl { font-size: 13px; color: var(--dim); letter-spacing: .06em; }
+#total { font-family: var(--mono); font-variant-numeric: tabular-nums; font-weight: 700; font-size: clamp(44px, 6.4vw, 76px); line-height: 1.05; color: var(--gate); }
+.row2 { display: flex; gap: 18px; margin-top: 8px; }
+.row2 > div { min-width: 0; }
+#cur, #count { font-family: var(--mono); font-variant-numeric: tabular-nums; font-weight: 600; font-size: clamp(24px, 3vw, 34px); }
+
+#controls { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 6px 18px 12px; }
+.btn { border: 1px solid var(--line); background: #1f2421; border-radius: 12px; padding: 14px 10px; font-size: 17px; font-weight: 600; cursor: pointer; }
+.btn:active { transform: translateY(1px); background: #262c29; }
+.btn:focus-visible { outline: 2px solid var(--gate); outline-offset: 2px; }
+.btn:disabled { opacity: .4; }
+#mainBtn { grid-column: 1 / -1; background: var(--gate); color: #111; border-color: var(--gate); font-size: 21px; padding: 18px; }
+#mainBtn.stop { background: var(--detect); border-color: var(--detect); color: #fff; }
+#mainBtn.cancel { background: #3a3f3c; border-color: #3a3f3c; color: var(--fg); }
+
+#laps { flex: 1; min-height: 0; overflow-y: auto; border-top: 1px solid var(--line); -webkit-overflow-scrolling: touch; }
+#lapTable { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+#lapTable th { position: sticky; top: 0; background: var(--panel); font-size: 12px; font-weight: 500; color: var(--dim); text-align: right; padding: 8px 14px; letter-spacing: .05em; }
+#lapTable th:first-child, #lapTable td:first-child { text-align: left; }
+#lapTable td { font-family: var(--mono); font-size: 19px; text-align: right; padding: 9px 14px; border-top: 1px solid var(--line); }
+#lapTable tr.best td { color: var(--best); }
+#lapTable td.delta { font-size: 15px; color: var(--dim); }
+#lapTable tr.best td.delta { color: var(--best); }
+#empty { padding: 18px; color: var(--dim); font-size: 15px; line-height: 1.6; }
+#summary { padding: 10px 14px; font-size: 14px; color: var(--dim); border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 4px 14px; }
+#summary b { color: var(--fg); font-family: var(--mono); font-weight: 600; }
+
+/* 설정·결과 시트 */
+.sheet { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: grid; place-items: center; padding: 16px; z-index: 10; }
+.sheet > div { width: min(560px, 100%); max-height: 100%; overflow-y: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 20px; }
+.sheet h2 { margin: 0 0 14px; font-size: 20px; }
+.field { margin: 0 0 16px; }
+.field label { display: flex; justify-content: space-between; font-size: 15px; margin-bottom: 6px; }
+.field label span { font-family: var(--mono); color: var(--gate); }
+.field input[type=range] { width: 100%; accent-color: var(--gate); }
+.field p { margin: 4px 0 0; font-size: 13px; color: var(--dim); line-height: 1.5; }
+.sheetBtns { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.sheetBtns .btn { flex: 1 1 140px; }
+#resultText { width: 100%; height: 260px; background: #0c0e0d; border: 1px solid var(--line); border-radius: 10px; color: var(--fg); font-family: var(--mono); font-size: 14px; padding: 10px; -webkit-user-select: text; user-select: text; }
+.toggle { display: flex; align-items: center; gap: 10px; font-size: 15px; }
+.toggle input { width: 22px; height: 22px; accent-color: var(--gate); }
+
+#toast { position: fixed; left: 50%; top: calc(env(safe-area-inset-top) + 14px); transform: translateX(-50%); background: #000c; border: 1px solid var(--line); padding: 10px 16px; border-radius: 10px; font-size: 15px; z-index: 20; }
+@media (prefers-reduced-motion: reduce) { .pill.armed { animation: none; } }
+</style>
+</head>
+<body>
+<div id="app">
+  <section id="stage">
+    <video id="video" playsinline muted autoplay></video>
+    <canvas id="overlay"></canvas>
+    <div id="hud">
+      <span id="status" class="pill setup">출발선 맞추기</span>
+      <div id="meter" title="출발선 감지량"><div id="meterFill"></div><div id="meterMark"></div></div>
+    </div>
+    <div id="hint">노란 선의 양 끝 동그라미를 끌어 바닥의 출발선에 맞추세요</div>
+    <div id="flash"><div><div id="flashLabel">LAP 1</div><div id="flashTime">0:00.00</div></div></div>
+    <div id="camError" hidden><div><b>카메라를 켜지 못했습니다</b><span id="camErrorMsg"></span><br><br><button class="btn" id="retryCam" type="button">다시 시도</button></div></div>
+  </section>
+
+  <aside id="panel">
+    <div id="clocks">
+      <div class="lbl">누적 시간</div>
+      <div id="total">0:00.00</div>
+      <div class="row2">
+        <div><div class="lbl">현재 랩</div><div id="cur">0:00.00</div></div>
+        <div><div class="lbl">완료 랩</div><div id="count">0</div></div>
+      </div>
+    </div>
+    <div id="controls">
+      <button class="btn" id="mainBtn" type="button">랩타임 시작</button>
+      <button class="btn" id="manualBtn" type="button" disabled>수동 기록</button>
+      <button class="btn" id="undoBtn" type="button" disabled>마지막 기록 취소</button>
+      <button class="btn" id="resultBtn" type="button">결과 보기</button>
+      <button class="btn" id="settingsBtn" type="button">설정</button>
+    </div>
+    <div id="laps">
+      <div id="empty">시작 버튼을 누르면 출발선을 가장 먼저 지나는 사람에서 타이머가 시작되고, 한 바퀴 돌아 다시 지날 때마다 랩이 기록됩니다.</div>
+      <table id="lapTable" hidden>
+        <thead><tr><th>랩</th><th>랩타임</th><th>누적</th><th>최고 대비</th></tr></thead>
+        <tbody id="lapBody"></tbody>
+      </table>
+    </div>
+    <div id="summary" hidden></div>
+  </aside>
+</div>
+
+<div class="sheet" id="settingsSheet" hidden>
+  <div>
+    <h2>설정</h2>
+    <div class="field">
+      <label for="sens">감지 감도 <span id="sensV"></span></label>
+      <input type="range" id="sens" min="3" max="40" step="1">
+      <p>출발선 길이 중 몇 %가 가려지면 통과로 볼지. 숫자가 작을수록 예민합니다. 사람이 아닌 것(그림자·흔들림)에 반응하면 올리세요.</p>
+    </div>
+    <div class="field">
+      <label for="pix">밝기 차이 기준 <span id="pixV"></span></label>
+      <input type="range" id="pix" min="10" max="80" step="1">
+      <p>배경과 이만큼 달라야 가려진 것으로 봅니다. 바닥과 옷 색이 비슷하면 내리세요.</p>
+    </div>
+    <div class="field">
+      <label for="lockout">최소 랩 시간 <span id="lockoutV"></span></label>
+      <input type="range" id="lockout" min="3" max="120" step="1">
+      <p>한 번 기록한 뒤 이 시간 동안은 출발선을 지나도 무시합니다. 뒤따라오는 사람이 기록되지 않도록 가장 빠른 랩보다 조금 짧게 두세요.</p>
+    </div>
+    <div class="field">
+      <label for="band">판정 선 두께 <span id="bandV"></span></label>
+      <input type="range" id="band" min="0" max="6" step="1">
+    </div>
+    <div class="field">
+      <label class="toggle" for="beep"><input type="checkbox" id="beep"> 기록할 때 삑 소리</label>
+    </div>
+    <div class="sheetBtns">
+      <button class="btn" id="flipCam" type="button">앞/뒤 카메라 전환</button>
+      <button class="btn" id="fileBtn" type="button">영상 파일로 측정</button>
+      <input type="file" id="fileInput" accept="video/*" hidden>
+    </div>
+    <div class="sheetBtns">
+      <button class="btn" id="resetLine" type="button">가이드선 처음 위치로</button>
+      <button class="btn" id="closeSettings" type="button" style="background:var(--gate);color:#111;border-color:var(--gate)">닫기</button>
+    </div>
+  </div>
+</div>
+
+<div class="sheet" id="resultSheet" hidden>
+  <div>
+    <h2>측정 결과</h2>
+    <textarea id="resultText" readonly></textarea>
+    <div class="sheetBtns">
+      <button class="btn" id="copyBtn" type="button">복사</button>
+      <button class="btn" id="csvBtn" type="button">CSV 저장</button>
+      <button class="btn" id="clearBtn" type="button">기록 지우기</button>
+      <button class="btn" id="closeResult" type="button" style="background:var(--gate);color:#111;border-color:var(--gate)">닫기</button>
+    </div>
+  </div>
+</div>
+<div id="toast" hidden></div>
+
+<script>
+(() => {
+'use strict';
+const $ = s => document.querySelector(s);
+const video = $('#video'), overlay = $('#overlay'), octx = overlay.getContext('2d');
+const work = document.createElement('canvas');
+const wctx = work.getContext('2d', { willReadFrequently: true });
+
+/* ---------- 설정 ---------- */
+const DEFAULTS = { p1: { x: 0.5, y: 0.12 }, p2: { x: 0.5, y: 0.88 }, sens: 12, pix: 28, lockout: 15, band: 2, beep: true, facing: 'environment' };
+let S = Object.assign({}, DEFAULTS);
+try { const saved = JSON.parse(localStorage.getItem('laptimer.settings') || 'null'); if (saved) S = Object.assign(S, saved); } catch (e) {}
+const saveSettings = () => { try { localStorage.setItem('laptimer.settings', JSON.stringify(S)); } catch (e) {} };
+
+/* ---------- 상태 ---------- */
+let state = 'setup';           // setup | armed | running | stopped
+let source = 'camera';         // camera | file
+let crossings = [];            // 통과 시각(초). 카메라: performance 기준, 파일: 영상 시간
+let walls = [];                // 통과 순간의 실제 시계(ms), 카메라일 때만
+let stopT = null;
+let startedAt = null;          // 세션 시작 실제 시각
+let stream = null;
+let cur = null, bg = null, frac = 0, lineClear = true, clearFrames = 0, lastTrig = -1e9;
+let audioCtx = null, wakeLock = null;
+
+const nowT = () => source === 'file' ? video.currentTime : performance.now() / 1000;
+
+/* ---------- 카메라 ---------- */
+async function startCamera() {
+  $('#camError').hidden = true;
+  if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+    showCamError('카메라는 https:// 로 시작하는 주소에서만 켜집니다. 이 파일을 https 주소로 올려서 Safari로 열어 주세요.');
+    return;
+  }
+  stopStream();
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: { facingMode: { ideal: S.facing }, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 60 } }
+    });
+    source = 'camera';
+    video.removeAttribute('src');
+    video.srcObject = stream;
+    video.loop = false;
+    await video.play().catch(() => {});
+    bg = null;
+  } catch (err) {
+    const name = err && err.name;
+    showCamError(name === 'NotAllowedError'
+      ? '카메라 사용이 거부되었습니다. 설정 > Safari > 카메라 에서 "허용"으로 바꾼 뒤 다시 시도하세요.'
+      : '카메라를 찾지 못했습니다 (' + (name || err) + ').');
+  }
+}
+function stopStream() { if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; } }
+function showCamError(msg) { $('#camErrorMsg').textContent = msg; $('#camError').hidden = false; }
+$('#retryCam').onclick = startCamera;
+
+/* ---------- 영상 좌표 ↔ 화면 좌표 ---------- */
+function videoRect() {
+  const W = overlay.clientWidth, H = overlay.clientHeight;
+  const vw = video.videoWidth || 16, vh = video.videoHeight || 9;
+  const sc = Math.min(W / vw, H / vh);
+  const w = vw * sc, h = vh * sc;
+  return { x: (W - w) / 2, y: (H - h) / 2, w, h };
+}
+const toScreen = p => { const r = videoRect(); return { x: r.x + p.x * r.w, y: r.y + p.y * r.h }; };
+const toVideo = (x, y) => { const r = videoRect(); return { x: clamp01((x - r.x) / r.w), y: clamp01((y - r.y) / r.h) }; };
+const clamp01 = v => Math.min(1, Math.max(0, v));
+
+/* ---------- 가이드선 끌기 ---------- */
+let drag = null;
+overlay.addEventListener('pointerdown', e => {
+  if (state === 'armed' || state === 'running') { toast('측정 중에는 가이드선이 잠겨 있습니다'); return; }
+  const r = overlay.getBoundingClientRect();
+  const x = e.clientX - r.left, y = e.clientY - r.top;
+  const a = toScreen(S.p1), b = toScreen(S.p2);
+  const da = Math.hypot(x - a.x, y - a.y), db = Math.hypot(x - b.x, y - b.y);
+  if (da < 44 && da <= db) drag = { kind: 'p1' };
+  else if (db < 44) drag = { kind: 'p2' };
+  else if (distToSeg(x, y, a, b) < 34) drag = { kind: 'both', start: toVideo(x, y), p1: { ...S.p1 }, p2: { ...S.p2 } };
+  else return;
+  overlay.setPointerCapture(e.pointerId);
+  e.preventDefault();
+});
+overlay.addEventListener('pointermove', e => {
+  if (!drag) return;
+  const r = overlay.getBoundingClientRect();
+  const v = toVideo(e.clientX - r.left, e.clientY - r.top);
+  if (drag.kind === 'p1') S.p1 = v;
+  else if (drag.kind === 'p2') S.p2 = v;
+  else {
+    let dx = v.x - drag.start.x, dy = v.y - drag.start.y;
+    dx = Math.min(1 - Math.max(drag.p1.x, drag.p2.x), Math.max(-Math.min(drag.p1.x, drag.p2.x), dx));
+    dy = Math.min(1 - Math.max(drag.p1.y, drag.p2.y), Math.max(-Math.min(drag.p1.y, drag.p2.y), dy));
+    S.p1 = { x: drag.p1.x + dx, y: drag.p1.y + dy };
+    S.p2 = { x: drag.p2.x + dx, y: drag.p2.y + dy };
+  }
+  bg = null;
+});
+const endDrag = () => { if (drag) { drag = null; saveSettings(); bg = null; } };
+overlay.addEventListener('pointerup', endDrag);
+overlay.addEventListener('pointercancel', endDrag);
+function distToSeg(x, y, a, b) {
+  const vx = b.x - a.x, vy = b.y - a.y, L = vx * vx + vy * vy || 1;
+  const t = Math.max(0, Math.min(1, ((x - a.x) * vx + (y - a.y) * vy) / L));
+  return Math.hypot(x - (a.x + t * vx), y - (a.y + t * vy));
+}
+
+/* ---------- 출발선 통과 감지 ----------
+   출발선을 따라 픽셀 밝기를 읽어 '빈 바닥' 배경과 비교한다.
+   선 길이의 S.sens% 이상이 배경과 달라지는 첫 프레임 = 맨 앞 사람이 선에 닿은 순간. */
+const AW = 320;
+function analyze(t, src = video) {
+  const vw = src.videoWidth || src.width, vh = src.videoHeight || src.height;
+  if (!vw || !vh) return;
+  const W = AW, H = Math.max(1, Math.round(AW * vh / vw));
+  if (work.width !== W || work.height !== H) { work.width = W; work.height = H; bg = null; }
+  wctx.drawImage(src, 0, 0, W, H);
+  const d = wctx.getImageData(0, 0, W, H).data;
+
+  const x1 = S.p1.x * (W - 1), y1 = S.p1.y * (H - 1), x2 = S.p2.x * (W - 1), y2 = S.p2.y * (H - 1);
+  const len = Math.hypot(x2 - x1, y2 - y1);
+  if (len < 4) return;
+  const n = Math.max(8, Math.round(len));
+  const nx = -(y2 - y1) / len, ny = (x2 - x1) / len;
+  if (!cur || cur.length !== n) { cur = new Float32Array(n); bg = null; }
+  const band = S.band | 0;
+  for (let i = 0; i < n; i++) {
+    const px = x1 + (x2 - x1) * i / (n - 1), py = y1 + (y2 - y1) * i / (n - 1);
+    let sum = 0, cnt = 0;
+    for (let k = -band; k <= band; k++) {
+      const sx = Math.round(px + nx * k), sy = Math.round(py + ny * k);
+      if (sx < 0 || sy < 0 || sx >= W || sy >= H) continue;
+      const o = (sy * W + sx) * 4;
+      sum += 0.299 * d[o] + 0.587 * d[o + 1] + 0.114 * d[o + 2]; cnt++;
+    }
+    cur[i] = cnt ? sum / cnt : 0;
+  }
+  if (!bg) { bg = Float32Array.from(cur); frac = 0; lineClear = false; clearFrames = 0; return; }
+
+  // 노출·구름 등으로 화면 전체가 밝아지거나 어두워진 만큼은 빼고 비교 (중앙값 보정)
+  const diffs = new Float32Array(n);
+  for (let i = 0; i < n; i++) diffs[i] = cur[i] - bg[i];
+  const sorted = Array.from(diffs).sort((a, b) => a - b);
+  const shift = sorted[n >> 1];
+  let changed = 0;
+  for (let i = 0; i < n; i++) {
+    const dv = Math.abs(diffs[i] - shift);
+    const hit = dv > S.pix;
+    if (hit) changed++;
+    bg[i] += (hit ? 0.003 : 0.05) * (cur[i] - shift - bg[i]) + (hit ? 0 : 0.05 * shift);
+  }
+  frac = changed / n;
+  const thr = S.sens / 100;
+
+  if (frac < thr * 0.5) { if (++clearFrames >= 4) lineClear = true; } else clearFrames = 0;
+
+  if (frac >= thr && lineClear && (state === 'armed' || state === 'running')) {
+    const gap = state === 'armed' ? 0 : S.lockout;
+    if (t - lastTrig >= gap) { lineClear = false; record(t); }
+  }
+}
+
+/* 프레임 단위로 분석 (가능하면 실제 촬영 시각 사용) */
+function frameLoop() {
+  if ('requestVideoFrameCallback' in HTMLVideoElement.prototype) {
+    const cb = (now, meta) => {
+      const t = source === 'file' ? meta.mediaTime : ((meta.captureTime || now) / 1000);
+      analyze(t);
+      video.requestVideoFrameCallback(cb);
+    };
+    video.requestVideoFrameCallback(cb);
+  } else {
+    let lastVT = -1;
+    const tick = () => {
+      if (video.readyState >= 2 && (source === 'camera' || video.currentTime !== lastVT)) { lastVT = video.currentTime; analyze(nowT()); }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }
+}
+video.addEventListener('loadeddata', () => { bg = null; });
+
+/* ---------- 기록 ---------- */
+function record(t) {
+  lastTrig = t;
+  if (state === 'armed') {
+    crossings = [t]; walls = source === 'camera' ? [Date.now()] : [];
+    startedAt = Date.now();
+    setState('running');
+    flash('START', '0:00.00', false);
+    beep(2);
+  } else if (state === 'running') {
+    crossings.push(t); if (source === 'camera') walls.push(Date.now());
+    const laps = lapTimes();
+    const lt = laps[laps.length - 1];
+    const isBest = laps.length > 1 && cs(lt) <= cs(Math.min(...laps));
+    flash('LAP ' + laps.length + (isBest ? ' · 최고' : ''), fmt(lt), isBest);
+    beep(1);
+  }
+  renderLaps(); saveSession();
+}
+const lapTimes = () => crossings.slice(1).map((c, i) => c - crossings[i]);
+const cs = v => Math.floor(v * 100 + 1e-6);
+
+function setState(s) {
+  state = s;
+  const st = $('#status'), mb = $('#mainBtn');
+  st.className = 'pill ' + s;
+  mb.className = 'btn';
+  if (s === 'setup') { st.textContent = '출발선 맞추기'; mb.textContent = '랩타임 시작'; }
+  if (s === 'armed') { st.textContent = '출발선 통과 대기'; mb.textContent = '대기 취소'; mb.classList.add('cancel'); }
+  if (s === 'running') { st.textContent = '측정 중'; mb.textContent = '정지'; mb.classList.add('stop'); }
+  if (s === 'stopped') { st.textContent = '정지됨'; mb.textContent = '새로 측정'; }
+  $('#manualBtn').disabled = !(s === 'armed' || s === 'running');
+  $('#undoBtn').disabled = !(crossings.length > 0 && (s === 'running' || s === 'stopped'));
+  $('#hint').hidden = !(s === 'setup' || s === 'armed');
+  $('#hint').textContent = s === 'armed'
+    ? '출발선을 가장 먼저 지나는 사람에서 시작합니다'
+    : '노란 선의 양 끝 동그라미를 끌어 바닥의 출발선에 맞추세요';
+}
+
+$('#mainBtn').onclick = () => {
+  ensureAudio();
+  if (state === 'setup' || state === 'stopped') {
+    crossings = []; walls = []; stopT = null; lastTrig = -1e9; bg = null;
+    renderLaps();
+    setState('armed'); keepAwake();
+    if (source === 'file' && video.paused) video.play().catch(() => {});
+  } else if (state === 'armed') {
+    setState(crossings.length ? 'stopped' : 'setup');
+  } else if (state === 'running') {
+    stopT = nowT(); setState('stopped'); saveSession(); releaseAwake();
+  }
+};
+$('#manualBtn').onclick = () => { ensureAudio(); record(nowT()); };
+$('#undoBtn').onclick = () => {
+  if (!crossings.length) return;
+  crossings.pop(); walls.pop();
+  if (!crossings.length) { setState(state === 'running' ? 'armed' : 'setup'); stopT = null; }
+  lastTrig = crossings.length ? crossings[crossings.length - 1] : -1e9;
+  renderLaps(); saveSession(); setState(state);
+  toast('마지막 기록을 취소했습니다');
+};
+
+/* ---------- 화면 표시 ---------- */
+function fmt(s) {
+  if (!isFinite(s) || s < 0) s = 0;
+  const cs = Math.floor(s * 100 + 1e-6);
+  const m = Math.floor(cs / 6000), sec = Math.floor(cs / 100) % 60, c = cs % 100;
+  return m + ':' + String(sec).padStart(2, '0') + '.' + String(c).padStart(2, '0');
+}
+function clock(ms) {
+  const d = new Date(ms);
+  return d.toTimeString().slice(0, 8) + '.' + String(d.getMilliseconds()).padStart(3, '0');
+}
+
+function renderLaps() {
+  const laps = lapTimes();
+  const body = $('#lapBody');
+  body.textContent = '';
+  $('#lapTable').hidden = laps.length === 0;
+  $('#empty').hidden = laps.length > 0;
+  const best = laps.length ? Math.min(...laps) : 0;
+  for (let i = laps.length - 1; i >= 0; i--) {
+    const tr = document.createElement('tr');
+    const delta = (cs(laps[i]) - cs(best)) / 100;
+    if (laps.length > 1 && delta === 0) tr.className = 'best';
+    [String(i + 1), fmt(laps[i]), fmt(crossings[i + 1] - crossings[0]), laps.length > 1 ? (delta === 0 ? '최고' : '+' + delta.toFixed(2)) : '–']
+      .forEach((txt, j) => { const td = document.createElement('td'); td.textContent = txt; if (j === 3) td.className = 'delta'; tr.appendChild(td); });
+    body.appendChild(tr);
+  }
+  const sm = $('#summary');
+  sm.hidden = laps.length === 0;
+  if (laps.length) {
+    const avg = laps.reduce((a, b) => a + b, 0) / laps.length;
+    sm.innerHTML = '';
+    [['최고', fmt(best) + ' (' + (laps.indexOf(best) + 1) + '랩)'], ['평균', fmt(avg)], ['랩 수', String(laps.length)]].forEach(([k, v]) => {
+      const s = document.createElement('span'); s.textContent = k + ' '; const b = document.createElement('b'); b.textContent = v; s.appendChild(b); sm.appendChild(s);
+    });
+  }
+  $('#count').textContent = laps.length;
+  $('#undoBtn').disabled = !(crossings.length > 0 && (state === 'running' || state === 'stopped'));
+}
+
+let flashTimer = 0;
+function flash(label, time, best) {
+  $('#flashLabel').textContent = label; $('#flashTime').textContent = time;
+  const f = $('#flash'); f.classList.toggle('best', !!best); f.classList.add('on');
+  clearTimeout(flashTimer); flashTimer = setTimeout(() => f.classList.remove('on'), 2200);
+}
+let toastTimer = 0;
+function toast(msg) { const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => t.hidden = true, 2000); }
+
+function drawOverlay() {
+  const dpr = window.devicePixelRatio || 1;
+  const W = overlay.clientWidth, H = overlay.clientHeight;
+  if (overlay.width !== Math.round(W * dpr) || overlay.height !== Math.round(H * dpr)) { overlay.width = Math.round(W * dpr); overlay.height = Math.round(H * dpr); }
+  octx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  octx.clearRect(0, 0, W, H);
+  if (!video.videoWidth) return;
+  const a = toScreen(S.p1), b = toScreen(S.p2);
+  const live = state === 'armed' || state === 'running';
+  const hot = frac >= S.sens / 100;
+  const color = hot ? '#ff4b3e' : (live ? '#3ddc84' : '#ffd21f');
+  // 판정 폭
+  const r = videoRect(); const bandPx = Math.max(2, (S.band * 2 + 1) * r.w / AW);
+  octx.lineCap = 'round';
+  octx.strokeStyle = 'rgba(0,0,0,.55)'; octx.lineWidth = bandPx + 6;
+  octx.beginPath(); octx.moveTo(a.x, a.y); octx.lineTo(b.x, b.y); octx.stroke();
+  octx.strokeStyle = color; octx.lineWidth = bandPx;
+  octx.setLineDash(live ? [] : [14, 8]);
+  octx.beginPath(); octx.moveTo(a.x, a.y); octx.lineTo(b.x, b.y); octx.stroke();
+  octx.setLineDash([]);
+  if (!live) {
+    for (const p of [a, b]) {
+      octx.fillStyle = 'rgba(0,0,0,.45)'; octx.beginPath(); octx.arc(p.x, p.y, 20, 0, Math.PI * 2); octx.fill();
+      octx.strokeStyle = color; octx.lineWidth = 3; octx.beginPath(); octx.arc(p.x, p.y, 16, 0, Math.PI * 2); octx.stroke();
+      octx.fillStyle = color; octx.beginPath(); octx.arc(p.x, p.y, 4, 0, Math.PI * 2); octx.fill();
+    }
+  }
+  // 라벨
+  const top = a.y < b.y ? a : b;
+  octx.font = '600 14px ' + getComputedStyle(document.body).fontFamily;
+  const label = 'START / FINISH';
+  const tw = octx.measureText(label).width;
+  const lx = Math.min(W - tw - 16, Math.max(8, top.x + 16)), ly = Math.max(22, top.y - 14);
+  octx.fillStyle = 'rgba(0,0,0,.6)'; octx.fillRect(lx - 6, ly - 16, tw + 12, 22);
+  octx.fillStyle = color; octx.fillText(label, lx, ly);
+}
+
+function uiLoop() {
+  const t = nowT();
+  let total = 0, curLap = 0;
+  if (crossings.length) {
+    const end = state === 'running' ? t : (stopT ?? crossings[crossings.length - 1]);
+    total = end - crossings[0];
+    curLap = end - crossings[crossings.length - 1];
+  }
+  $('#total').textContent = fmt(total);
+  $('#cur').textContent = fmt(curLap);
+  const thr = S.sens / 100;
+  $('#meterFill').style.width = Math.min(100, frac / Math.max(thr * 2, 0.01) * 100) + '%';
+  $('#meterFill').style.background = frac >= thr ? 'var(--detect)' : 'var(--best)';
+  $('#meterMark').style.left = '50%';
+  drawOverlay();
+  requestAnimationFrame(uiLoop);
+}
+
+/* ---------- 소리·화면 꺼짐 방지 ---------- */
+function ensureAudio() {
+  if (!S.beep) return;
+  try { audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)(); if (audioCtx.state === 'suspended') audioCtx.resume(); } catch (e) {}
+}
+function beep(times) {
+  if (!S.beep || !audioCtx) return;
+  for (let i = 0; i < times; i++) {
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    const t0 = audioCtx.currentTime + i * 0.18;
+    o.frequency.value = 1600; o.type = 'square';
+    g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(0.25, t0 + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.12);
+    o.connect(g).connect(audioCtx.destination); o.start(t0); o.stop(t0 + 0.14);
+  }
+}
+async function keepAwake() { try { wakeLock = await navigator.wakeLock?.request('screen'); } catch (e) {} }
+function releaseAwake() { try { wakeLock?.release(); } catch (e) {} wakeLock = null; }
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && (state === 'armed' || state === 'running')) keepAwake(); });
+
+/* ---------- 결과 ---------- */
+function resultText() {
+  const laps = lapTimes();
+  if (!laps.length) return '아직 기록된 랩이 없습니다.';
+  const lines = [];
+  const when = startedAt ? new Date(startedAt) : new Date();
+  lines.push('인라인 랩타임 · ' + when.toLocaleDateString('ko-KR') + ' ' + when.toTimeString().slice(0, 5) + (source === 'file' ? ' (영상 파일)' : ''));
+  lines.push('');
+  lines.push(source === 'camera' ? '시작 통과  ' + clock(walls[0]) : '시작 통과  영상 ' + fmt(crossings[0]));
+  const best = Math.min(...laps);
+  laps.forEach((l, i) => {
+    const at = source === 'camera' ? clock(walls[i + 1]) : '영상 ' + fmt(crossings[i + 1]);
+    lines.push('랩 ' + String(i + 1).padStart(2, ' ') + '   ' + fmt(l) + '   누적 ' + fmt(crossings[i + 1] - crossings[0]) + '   ' + at + (cs(l) === cs(best) && laps.length > 1 ? '  ★최고' : ''));
+  });
+  const avg = laps.reduce((a, b) => a + b, 0) / laps.length;
+  lines.push('');
+  lines.push('최고 ' + fmt(best) + ' (' + (laps.indexOf(best) + 1) + '랩) · 평균 ' + fmt(avg) + ' · ' + laps.length + '랩');
+  return lines.join('\n');
+}
+function resultCSV() {
+  const laps = lapTimes();
+  const rows = [['lap', 'lap_time_s', 'lap_time', 'total_s', 'total', source === 'camera' ? 'crossing_clock' : 'crossing_video_s']];
+  rows.push([0, '', '', 0, fmt(0), source === 'camera' ? clock(walls[0]) : crossings[0].toFixed(3)]);
+  laps.forEach((l, i) => rows.push([i + 1, l.toFixed(3), fmt(l), (crossings[i + 1] - crossings[0]).toFixed(3), fmt(crossings[i + 1] - crossings[0]),
+    source === 'camera' ? clock(walls[i + 1]) : crossings[i + 1].toFixed(3)]));
+  return rows.map(r => r.join(',')).join('\n');
+}
+$('#resultBtn').onclick = () => { $('#resultText').value = resultText(); $('#resultSheet').hidden = false; };
+$('#closeResult').onclick = () => { $('#resultSheet').hidden = true; };
+$('#copyBtn').onclick = async () => {
+  const txt = $('#resultText').value;
+  try { await navigator.clipboard.writeText(txt); toast('복사했습니다'); }
+  catch (e) { const ta = $('#resultText'); ta.focus(); ta.select(); toast('글자를 길게 눌러 복사하세요'); }
+};
+$('#csvBtn').onclick = () => {
+  if (!lapTimes().length) { toast('저장할 랩이 없습니다'); return; }
+  const blob = new Blob(['﻿' + resultCSV()], { type: 'text/csv' });
+  const a = document.createElement('a');
+  const d = new Date(startedAt || Date.now());
+  a.href = URL.createObjectURL(blob);
+  a.download = 'laptime_' + d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0') + '_' + d.toTimeString().slice(0, 5).replace(':', '') + '.csv';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+};
+let clearArmed = 0;
+$('#clearBtn').onclick = () => {
+  if (Date.now() - clearArmed > 3000) { clearArmed = Date.now(); toast('한 번 더 누르면 기록을 지웁니다'); return; }
+  crossings = []; walls = []; stopT = null; startedAt = null; lastTrig = -1e9;
+  saveSession(); renderLaps(); setState('setup');
+  $('#resultText').value = resultText(); toast('기록을 지웠습니다');
+};
+
+function saveSession() { try { localStorage.setItem('laptimer.session', JSON.stringify({ crossings, walls, startedAt, source, stopT })); } catch (e) {} }
+function loadSession() {
+  try {
+    const s = JSON.parse(localStorage.getItem('laptimer.session') || 'null');
+    if (s && s.source === 'camera' && s.crossings?.length > 1) {
+      // 카메라 시각은 새로고침하면 기준이 바뀌므로 실제 시계로 다시 맞춘다
+      const base = performance.now() / 1000;
+      crossings = s.walls.map(w => base + (w - Date.now()) / 1000);
+      walls = s.walls; startedAt = s.startedAt; stopT = crossings[crossings.length - 1];
+      setState('stopped'); renderLaps();
+      toast('지난 측정 기록을 불러왔습니다');
+    }
+  } catch (e) {}
+}
+
+/* ---------- 설정 시트 ---------- */
+const sliders = { sens: v => v + '%', pix: v => String(v), lockout: v => v + '초', band: v => (v * 2 + 1) + 'px' };
+for (const [k, f] of Object.entries(sliders)) {
+  const el = $('#' + k);
+  el.value = S[k]; $('#' + k + 'V').textContent = f(S[k]);
+  el.oninput = () => { S[k] = Number(el.value); $('#' + k + 'V').textContent = f(S[k]); if (k === 'band') bg = null; saveSettings(); };
+}
+$('#beep').checked = S.beep;
+$('#beep').onchange = () => { S.beep = $('#beep').checked; saveSettings(); if (S.beep) ensureAudio(); };
+$('#settingsBtn').onclick = () => { $('#settingsSheet').hidden = false; };
+$('#closeSettings').onclick = () => { $('#settingsSheet').hidden = true; };
+$('#resetLine').onclick = () => { S.p1 = { ...DEFAULTS.p1 }; S.p2 = { ...DEFAULTS.p2 }; bg = null; saveSettings(); toast('가이드선을 가운데로 옮겼습니다'); };
+$('#flipCam').onclick = () => {
+  if (state === 'armed' || state === 'running') { toast('측정을 멈춘 뒤 바꿀 수 있습니다'); return; }
+  S.facing = S.facing === 'environment' ? 'user' : 'environment'; saveSettings(); startCamera();
+};
+$('#fileBtn').onclick = () => {
+  if (state === 'armed' || state === 'running') { toast('측정을 멈춘 뒤 바꿀 수 있습니다'); return; }
+  $('#fileInput').click();
+};
+$('#fileInput').onchange = () => {
+  const f = $('#fileInput').files[0]; if (!f) return;
+  useVideoURL(URL.createObjectURL(f));
+  $('#settingsSheet').hidden = true;
+  toast('영상 파일 모드: 시작을 누르면 영상이 재생되며 측정합니다');
+};
+function useVideoURL(url) {
+  stopStream();
+  source = 'file';
+  video.srcObject = null; video.src = url; video.loop = false; video.muted = true;
+  video.pause(); bg = null;
+  crossings = []; walls = []; stopT = null; renderLaps(); setState('setup');
+  $('#camError').hidden = true;
+}
+video.addEventListener('ended', () => { if (source === 'file' && state === 'running') { stopT = video.currentTime; setState('stopped'); saveSession(); } });
+
+/* 테스트용 */
+window.__laptimer = { useVideoURL, analyze, get state() { return state; }, get frac() { return frac; }, lapTimes };
+
+/* ---------- 시작 ---------- */
+setState('setup');
+loadSession();
+startCamera();
+frameLoop();
+requestAnimationFrame(uiLoop);
+})();
+</script>
+</body>
+</html>
