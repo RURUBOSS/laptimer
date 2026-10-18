@@ -63,8 +63,17 @@ button, input, select { font: inherit; color: inherit; }
 
 /* 기록판 */
 #panel { background: var(--panel); border-left: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; min-width: 0; }
-@media (orientation: portrait) { #panel { border-left: 0; border-top: 1px solid var(--line); display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); grid-template-rows: auto 1fr; } #clocks { grid-column: 1; } #controls { grid-column: 2; align-content: center; } #laps { grid-column: 1 / -1; } }
+@media (orientation: portrait) { #panel { border-left: 0; border-top: 1px solid var(--line); display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); grid-template-rows: auto 1fr; } #nameBox { grid-column: 1 / -1; } #clocks { grid-column: 1; } #controls { grid-column: 2; align-content: center; } #laps { grid-column: 1 / -1; } }
 #clocks { padding: 16px 18px 10px; }
+#nameBox { padding: 14px 18px 0; display: grid; gap: 8px; }
+#skater { width: 100%; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); background: #0c0e0d; font-size: 22px; font-weight: 700; -webkit-user-select: text; user-select: text; }
+#skater::placeholder { color: var(--dim); font-weight: 500; }
+#skater:focus { outline: 2px solid var(--gate); outline-offset: 1px; }
+#skater:disabled { opacity: .7; }
+#recentNames { display: flex; flex-wrap: wrap; gap: 6px; }
+#recentNames button { border: 1px solid var(--line); background: #1f2421; border-radius: 999px; padding: 6px 12px; font-size: 15px; cursor: pointer; }
+#recentNames button.on { background: var(--gate); color: #111; border-color: var(--gate); }
+.pill.name { background: rgba(0,0,0,.7); color: var(--fg); font-size: 18px; font-weight: 700; }
 .lbl { font-size: 13px; color: var(--dim); letter-spacing: .06em; }
 #total { font-family: var(--mono); font-variant-numeric: tabular-nums; font-weight: 700; font-size: clamp(44px, 6.4vw, 76px); line-height: 1.05; color: var(--gate); }
 .row2 { display: flex; gap: 18px; margin-top: 8px; }
@@ -117,6 +126,7 @@ button, input, select { font: inherit; color: inherit; }
     <video id="video" playsinline muted autoplay></video>
     <canvas id="overlay"></canvas>
     <div id="hud">
+      <span id="namePill" class="pill name" hidden></span>
       <span id="status" class="pill setup">출발선 맞추기</span>
       <div id="meter" title="출발선 감지량"><div id="meterFill"></div><div id="meterMark"></div></div>
       <span id="fps" class="pill fps" hidden></span>
@@ -127,6 +137,10 @@ button, input, select { font: inherit; color: inherit; }
   </section>
 
   <aside id="panel">
+    <div id="nameBox">
+      <input id="skater" type="text" placeholder="선수 이름 입력" maxlength="20" autocomplete="off" enterkeyhint="done" aria-label="선수 이름">
+      <div id="recentNames"></div>
+    </div>
     <div id="clocks">
       <div class="lbl">누적 시간</div>
       <div id="total">0:00.00</div>
@@ -397,14 +411,14 @@ function record(t) {
     crossings = [t]; walls = source === 'camera' ? [Date.now()] : [];
     startedAt = Date.now();
     setState('running');
-    flash('START', '0:00.00', false);
+    flash(withName('START'), '0:00.00', false);
     beep(2);
   } else if (state === 'running') {
     crossings.push(t); if (source === 'camera') walls.push(Date.now());
     const laps = lapTimes();
     const lt = laps[laps.length - 1];
     const isBest = laps.length > 1 && cs(lt) <= cs(Math.min(...laps));
-    flash('LAP ' + laps.length + (isBest ? ' · 최고' : ''), fmt(lt), isBest);
+    flash(withName('LAP ' + laps.length + (isBest ? ' · 최고' : '')), fmt(lt), isBest);
     beep(1);
   }
   renderLaps(); saveSession();
@@ -422,6 +436,7 @@ function setState(s) {
   if (s === 'running') { st.textContent = '측정 중'; mb.textContent = '정지'; mb.classList.add('stop'); }
   if (s === 'stopped') { st.textContent = '정지됨'; mb.textContent = '새로 측정'; }
   $('#manualBtn').disabled = !(s === 'armed' || s === 'running');
+  if (typeof renderNames === 'function') renderNames();
   $('#undoBtn').disabled = !(crossings.length > 0 && (s === 'running' || s === 'stopped'));
   $('#hint').hidden = !(s === 'setup' || s === 'armed');
   $('#hint').textContent = s === 'armed'
@@ -432,6 +447,7 @@ function setState(s) {
 $('#mainBtn').onclick = () => {
   ensureAudio();
   if (state === 'setup' || state === 'stopped') {
+    $('#skater').blur(); rememberName(skaterName());
     crossings = []; walls = []; stopT = null; lastTrig = -1e9; bg = null;
     renderLaps();
     setState('armed'); keepAwake();
@@ -583,7 +599,7 @@ function resultText() {
   if (!laps.length) return '아직 기록된 랩이 없습니다.';
   const lines = [];
   const when = startedAt ? new Date(startedAt) : new Date();
-  lines.push('인라인 랩타임 · ' + when.toLocaleDateString('ko-KR') + ' ' + when.toTimeString().slice(0, 5) + (source === 'file' ? ' (영상 파일)' : ''));
+  lines.push((skaterName() ? skaterName() + ' · ' : '') + '인라인 랩타임 · ' + when.toLocaleDateString('ko-KR') + ' ' + when.toTimeString().slice(0, 5) + (source === 'file' ? ' (영상 파일)' : ''));
   lines.push('');
   lines.push(source === 'camera' ? '시작 통과  ' + clock(walls[0]) : '시작 통과  영상 ' + fmt(crossings[0]));
   const best = Math.min(...laps);
@@ -598,9 +614,9 @@ function resultText() {
 }
 function resultCSV() {
   const laps = lapTimes();
-  const rows = [['lap', 'lap_time_s', 'lap_time', 'total_s', 'total', source === 'camera' ? 'crossing_clock' : 'crossing_video_s']];
-  rows.push([0, '', '', 0, fmt(0), source === 'camera' ? clock(walls[0]) : crossings[0].toFixed(3)]);
-  laps.forEach((l, i) => rows.push([i + 1, l.toFixed(3), fmt(l), (crossings[i + 1] - crossings[0]).toFixed(3), fmt(crossings[i + 1] - crossings[0]),
+  const rows = [['name', 'lap', 'lap_time_s', 'lap_time', 'total_s', 'total', source === 'camera' ? 'crossing_clock' : 'crossing_video_s']];
+  rows.push([csvName(), 0, '', '', 0, fmt(0), source === 'camera' ? clock(walls[0]) : crossings[0].toFixed(3)]);
+  laps.forEach((l, i) => rows.push([csvName(), i + 1, l.toFixed(3), fmt(l), (crossings[i + 1] - crossings[0]).toFixed(3), fmt(crossings[i + 1] - crossings[0]),
     source === 'camera' ? clock(walls[i + 1]) : crossings[i + 1].toFixed(3)]));
   return rows.map(r => r.join(',')).join('\n');
 }
@@ -617,7 +633,7 @@ $('#csvBtn').onclick = () => {
   const a = document.createElement('a');
   const d = new Date(startedAt || Date.now());
   a.href = URL.createObjectURL(blob);
-  a.download = 'laptime_' + d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0') + '_' + d.toTimeString().slice(0, 5).replace(':', '') + '.csv';
+  a.download = 'laptime_' + (skaterName() ? skaterName().replace(/[\\/:*?"<>|\s]+/g, '_') + '_' : '') + d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0') + '_' + d.toTimeString().slice(0, 5).replace(':', '') + '.csv';
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 4000);
 };
@@ -629,7 +645,7 @@ $('#clearBtn').onclick = () => {
   $('#resultText').value = resultText(); toast('기록을 지웠습니다');
 };
 
-function saveSession() { try { localStorage.setItem('laptimer.session', JSON.stringify({ crossings, walls, startedAt, source, stopT })); } catch (e) {} }
+function saveSession() { try { localStorage.setItem('laptimer.session', JSON.stringify({ crossings, walls, startedAt, source, stopT, name: skaterName() })); } catch (e) {} }
 function loadSession() {
   try {
     const s = JSON.parse(localStorage.getItem('laptimer.session') || 'null');
@@ -637,12 +653,47 @@ function loadSession() {
       // 카메라 시각은 새로고침하면 기준이 바뀌므로 실제 시계로 다시 맞춘다
       const base = performance.now() / 1000;
       crossings = s.walls.map(w => base + (w - Date.now()) / 1000);
-      walls = s.walls; startedAt = s.startedAt; stopT = crossings[crossings.length - 1];
+      walls = s.walls; startedAt = s.startedAt; if (s.name) $('#skater').value = s.name; stopT = crossings[crossings.length - 1];
       setState('stopped'); renderLaps();
       toast('지난 측정 기록을 불러왔습니다');
     }
   } catch (e) {}
 }
+
+/* ---------- 선수 이름 ---------- */
+const skaterName = () => $('#skater').value.trim();
+const withName = label => skaterName() ? skaterName() + ' · ' + label : label;
+const csvName = () => '"' + skaterName().replace(/"/g, '""') + '"';
+let recent = [];
+try { recent = JSON.parse(localStorage.getItem('laptimer.names') || '[]'); } catch (e) {}
+try { $('#skater').value = localStorage.getItem('laptimer.name') || ''; } catch (e) {}
+function rememberName(n) {
+  if (!n) return;
+  recent = [n, ...recent.filter(x => x !== n)].slice(0, 10);
+  try { localStorage.setItem('laptimer.names', JSON.stringify(recent)); } catch (e) {}
+  renderNames();
+}
+function renderNames() {
+  const box = $('#recentNames'); box.textContent = '';
+  const n = skaterName(), locked = state === 'armed' || state === 'running';
+  recent.forEach(r => {
+    const b = document.createElement('button'); b.type = 'button'; b.textContent = r;
+    if (r === n) b.className = 'on';
+    b.disabled = locked;
+    b.onclick = () => { $('#skater').value = r; nameChanged(); };
+    box.appendChild(b);
+  });
+  box.hidden = recent.length === 0;
+  const pill = $('#namePill'); pill.textContent = n; pill.hidden = !n;
+  $('#skater').disabled = locked;
+}
+function nameChanged() {
+  try { localStorage.setItem('laptimer.name', skaterName()); } catch (e) {}
+  if (crossings.length) saveSession();
+  renderNames();
+}
+$('#skater').addEventListener('input', nameChanged);
+$('#skater').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); $('#skater').blur(); rememberName(skaterName()); } });
 
 /* ---------- 설정 시트 ---------- */
 const sliders = { sens: v => v + '%', pix: v => String(v), lockout: v => v + '초', band: v => (v * 2 + 1) + 'px' };
